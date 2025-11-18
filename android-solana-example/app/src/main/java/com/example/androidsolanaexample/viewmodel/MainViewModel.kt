@@ -4,9 +4,10 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.androidsolanaexample.data.Web3AuthHelper
+import com.example.androidsolanaexample.data.Web3AuthSampleConfig
 import com.example.androidsolanaexample.domain.SolanaUseCase
+import com.web3auth.core.types.AuthConnection
 import com.web3auth.core.types.LoginParams
-import com.web3auth.core.types.Provider
 import com.web3auth.core.types.UserInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,7 +35,11 @@ class MainViewModel(private val web3AuthHelper: Web3AuthHelper, private val sola
         solanaKeyPair = Keypair.fromSecretKey(solanaPrivateKey().hexToByteArray())
     }
     fun login(){
-        val loginParams = LoginParams(loginProvider = Provider.GOOGLE)
+        val loginParams = LoginParams(
+            authConnection = AuthConnection.GOOGLE,
+            authConnectionId = Web3AuthSampleConfig.GOOGLE_AUTH_CONNECTION_ID,
+            groupedAuthConnectionId = Web3AuthSampleConfig.GROUPED_AUTH_CONNECTION_ID
+        )
         viewModelScope.launch {
             try {
                 web3AuthHelper.login(loginParams = loginParams).await()
@@ -98,9 +103,7 @@ class MainViewModel(private val web3AuthHelper: Web3AuthHelper, private val sola
     }
 
     fun setResultUrl(uri: Uri?) {
-        viewModelScope.launch {
-            web3AuthHelper.setResultUrl(uri)
-        }
+        web3AuthHelper.setResultUrl(uri)
     }
 
      fun signAndSendTransaction(onSign: (hash: String?, error: String?) -> Unit) {

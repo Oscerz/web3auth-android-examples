@@ -11,7 +11,7 @@ class Web3AuthHelperImpl(
     private val web3Auth: Web3Auth
 ): Web3AuthHelper {
     override suspend fun login(loginParams: LoginParams): CompletableFuture<Web3AuthResponse> {
-       return web3Auth.login(loginParams)
+       return web3Auth.connectTo(loginParams)
     }
 
     override suspend fun logOut(): CompletableFuture<Void> {
@@ -19,7 +19,7 @@ class Web3AuthHelperImpl(
     }
 
     override fun getSolanaPrivateKey(): String {
-        return web3Auth.getEd25519PrivKey()
+        return web3Auth.getEd25519PrivateKey()
     }
 
     override fun getUserInfo(): UserInfo {
@@ -39,12 +39,15 @@ class Web3AuthHelperImpl(
        }
     }
 
-    override suspend fun setResultUrl(uri: Uri?) {
-        return web3Auth.setResultUrl(uri)
+    override fun setResultUrl(uri: Uri?) {
+        web3Auth.setResultUrl(uri)
     }
 
-    override suspend fun isUserAuthenticated(): Boolean {
-        return web3Auth.getPrivkey().isNotEmpty()
-    }
+    override suspend fun isUserAuthenticated(): Boolean =
+        try {
+            web3Auth.getPrivateKey().isNotEmpty()
+        } catch (_: Exception) {
+            false
+        }
 
 }
