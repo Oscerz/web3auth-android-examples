@@ -1,7 +1,6 @@
 package com.sbz.web3authdemoapp
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -11,7 +10,21 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.Gson
 import com.web3auth.core.Web3Auth
-import com.web3auth.core.types.*
+import com.web3auth.core.types.AuthConnection
+import com.web3auth.core.types.AuthConnectionConfig
+import com.web3auth.core.types.BuildEnv
+import com.web3auth.core.types.ExtraLoginOptions
+import com.web3auth.core.types.Language
+import com.web3auth.core.types.LoginParams
+import com.web3auth.core.types.MfaSetting
+import com.web3auth.core.types.MfaSettings
+import com.web3auth.core.types.ThemeModes
+import com.web3auth.core.types.UserInfo
+import com.web3auth.core.types.WalletServicesConfig
+import com.web3auth.core.types.Web3AuthOptions
+import com.web3auth.core.types.Web3AuthResponse
+import com.web3auth.core.types.WhiteLabelData
+import org.torusresearch.fetchnodedetails.types.Web3AuthNetwork
 import org.web3j.crypto.Credentials
 import org.web3j.crypto.Hash
 import org.web3j.crypto.RawTransaction
@@ -32,9 +45,17 @@ import java.util.concurrent.CompletableFuture
 
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val GROUPED_AUTH_CONNECTION_ID = "aggregate-sapphire"
+        private const val GOOGLE_AUTH_CONNECTION_ID = "w3a-google"
+        private const val AUTH0_AUTH_CONNECTION_ID = "w3a-a0-email-passwordless"
+        private const val AUTH0_DOMAIN = "https://web3auth.au.auth0.com"
+        private const val DEFAULT_CHAIN_ID = "0xaa36a7" // Sepolia
+    }
+
     private lateinit var web3Auth: Web3Auth
     private lateinit var web3: Web3j
-    private lateinit var credentials: Credentials
+    private var credentials: Credentials? = null
     private val rpcUrl = "https://1rpc.io/sepolia"
     private val gson = Gson()
 
@@ -43,69 +64,79 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         web3 = Web3j.build(HttpService(rpcUrl))
 
-        web3Auth = Web3Auth(
-           Web3AuthOptions(
-               clientId = getString(R.string.web3auth_project_id), // pass over your Web3Auth Client ID from Developer Dashboard
-               network = Network.SAPPHIRE_MAINNET, // pass over the network you want to use (MAINNET or TESTNET or CYAN, AQUA, SAPPHIRE_MAINNET or SAPPHIRE_TESTNET)
-               buildEnv = BuildEnv.PRODUCTION,
-               redirectUrl = Uri.parse("com.sbz.web3authdemoapp://auth"), // your app's redirect URL
-               whiteLabel = WhiteLabelData(
-                   "Web3Auth Android Example",
-                   null,
-                   "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-                   "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-                   Language.EN,
-                   ThemeModes.LIGHT,
-                   true,
-                   hashMapOf(
-                       "primary" to "#eb5424"
-                   )
-               ),
-               mfaSettings = MfaSettings(
-                   deviceShareFactor = MfaSetting(true, 1, true),
-                   socialBackupFactor = MfaSetting(true, 2, true),
-                   passwordFactor = MfaSetting(true, 3, false),
-                   backUpShareFactor = MfaSetting(true, 4, false),
-               ),
-               loginConfig = hashMapOf(
-                   "google" to LoginConfigItem(
-                       verifier = "aggregate-sapphire",
-                       verifierSubIdentifier= "w3a-google",
-                       typeOfLogin = TypeOfLogin.GOOGLE,
-                       name = "Aggregate Login",
-                       clientId = getString(R.string.web3auth_google_client_id)
-                    ),
-                   "jwt" to LoginConfigItem(
-                       verifier = "aggregate-sapphire",
-                       verifierSubIdentifier= "w3a-a0-email-passwordless",
-                       typeOfLogin = TypeOfLogin.JWT,
-                       name = "Aggregate Login",
-                       clientId = getString(R.string.web3auth_auth0_client_id)
-                   )
-               )
-           ), context = this
+        val whiteLabelData = WhiteLabelData(
+            "Web3Auth Android Example",
+            null,
+            "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+            "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+            Language.EN,
+            ThemeModes.LIGHT,
+            true,
+            hashMapOf("primary" to "#eb5424")
         )
 
-        // Handle user signing in when app is not alive
+        val authConnections = listOf(
+            AuthConnectionConfig(
+                authConnectionId = GOOGLE_AUTH_CONNECTION_ID,
+                authConnection = AuthConnection.GOOGLE,
+                clientId = getString(R.string.web3auth_google_client_id),
+                groupedAuthConnectionId = GROUPED_AUTH_CONNECTION_ID
+            ),
+            AuthConnectionConfig(
+                authConnectionId = AUTH0_AUTH_CONNECTION_ID,
+                authConnection = AuthConnection.CUSTOM,
+                clientId = getString(R.string.web3auth_auth0_client_id),
+                groupedAuthConnectionId = GROUPED_AUTH_CONNECTION_ID,
+                jwtParameters = ExtraLoginOptions(
+                    domain = AUTH0_DOMAIN,
+                    userIdField = "email",
+                    isUserIdCaseSensitive = false
+                )
+            )
+        )
+
+        web3Auth = Web3Auth(
+            Web3AuthOptions(
+                clientId = getString(R.string.web3auth_project_id),
+                web3AuthNetwork = Web3AuthNetwork.SAPPHIRE_MAINNET,
+                authBuildEnv = BuildEnv.PRODUCTION,
+                redirectUrl = "com.sbz.web3authdemoapp://auth",
+                whiteLabel = whiteLabelData,
+                walletServicesConfig = WalletServicesConfig(whiteLabel = whiteLabelData),
+                authConnectionConfig = authConnections,
+                mfaSettings = MfaSettings(
+                    deviceShareFactor = MfaSetting(true, 1, true),
+                    socialBackupFactor = MfaSetting(true, 2, true),
+                    passwordFactor = MfaSetting(true, 3, false),
+                    backUpShareFactor = MfaSetting(true, 4, false),
+                ),
+                defaultChainId = DEFAULT_CHAIN_ID
+            ), this
+        )
+
         web3Auth.setResultUrl(intent?.data)
 
-        // Call initialize() in onCreate() to check for any existing session.
         val sessionResponse: CompletableFuture<Void> = web3Auth.initialize()
         sessionResponse.whenComplete { _, error ->
             if (error == null) {
+                setCredentialsIfPresent()
                 reRender()
-                println("PrivKey: " + web3Auth.getPrivkey())
-                println("ed25519PrivKey: " + web3Auth.getEd25519PrivKey())
-                println("Web3Auth UserInfo" + web3Auth.getUserInfo())
-                credentials = Credentials.create(web3Auth.getPrivkey())
-                Log.d("MainActivity_Web3Auth", web3Auth.getUserInfo().toString())
+                try {
+                    println("PrivKey: ${web3Auth.getPrivateKey()}")
+                    println("ed25519PrivKey: ${web3Auth.getEd25519PrivateKey()}")
+                } catch (ex: Exception) {
+                    Log.d("MainActivity_Web3Auth", ex.message ?: "Unable to fetch keys")
+                }
+                println("Web3Auth UserInfo ${web3Auth.getUserInfo()}")
+                Log.d(
+                    "MainActivity_Web3Auth",
+                    web3Auth.getUserInfo()?.toString() ?: "No user logged in"
+                )
             } else {
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
-                // Ideally, you should initiate the login function here.
             }
         }
 
-        // Setup UI and event handlers
         val signInGoogleButton = findViewById<Button>(R.id.signInGoogle)
         signInGoogleButton.setOnClickListener { signInGoogle() }
 
@@ -129,7 +160,9 @@ class MainActivity : AppCompatActivity() {
         getMessageButton.visibility = View.GONE
 
         val getTransactionButton = findViewById<Button>(R.id.getTransaction)
-        getTransactionButton.setOnClickListener { sendTransaction(0.001, "0xeaA8Af602b2eDE45922818AE5f9f7FdE50cFa1A8") }
+        getTransactionButton.setOnClickListener {
+            sendTransaction(0.001, "0xeaA8Af602b2eDE45922818AE5f9f7FdE50cFa1A8")
+        }
         getTransactionButton.visibility = View.GONE
 
         val getEnableMFAButton = findViewById<Button>(R.id.enableMFA)
@@ -143,8 +176,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent?) {
         super.onNewIntent(intent)
-
-        // Handle user signing in when app is active
         web3Auth.setResultUrl(intent?.data)
     }
 
@@ -158,12 +189,23 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signInEP() {
-        val selectedLoginProvider = Provider.JWT
-        val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.login(LoginParams(selectedLoginProvider, extraLoginOptions = ExtraLoginOptions(domain = "https://web3auth.au.auth0.com", verifierIdField = "email", isVerifierIdCaseSensitive = false)))
+        val loginCompletableFuture: CompletableFuture<Web3AuthResponse> =
+            web3Auth.connectTo(
+                LoginParams(
+                    authConnection = AuthConnection.CUSTOM,
+                    authConnectionId = AUTH0_AUTH_CONNECTION_ID,
+                    groupedAuthConnectionId = GROUPED_AUTH_CONNECTION_ID,
+                    extraLoginOptions = ExtraLoginOptions(
+                        domain = AUTH0_DOMAIN,
+                        userIdField = "email",
+                        isUserIdCaseSensitive = false
+                    )
+                )
+            )
 
         loginCompletableFuture.whenComplete { _, error ->
             if (error == null) {
-                credentials = Credentials.create(web3Auth.getPrivkey())
+                setCredentialsIfPresent()
                 reRender()
             } else {
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
@@ -172,12 +214,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signInGoogle() {
-        val selectedLoginProvider = Provider.GOOGLE
-        val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.login(LoginParams(selectedLoginProvider))
+        val loginCompletableFuture: CompletableFuture<Web3AuthResponse> =
+            web3Auth.connectTo(
+                LoginParams(
+                    authConnection = AuthConnection.GOOGLE,
+                    authConnectionId = GOOGLE_AUTH_CONNECTION_ID,
+                    groupedAuthConnectionId = GROUPED_AUTH_CONNECTION_ID,
+                )
+            )
 
         loginCompletableFuture.whenComplete { _, error ->
             if (error == null) {
-                credentials = Credentials.create(web3Auth.getPrivkey())
+                setCredentialsIfPresent()
                 reRender()
             } else {
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
@@ -186,70 +234,52 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enableMFA() {
-        val loginParams = prepareLoginParams()
-        val completableFuture = web3Auth.enableMFA(loginParams)
-        completableFuture.whenComplete{_, error ->
+        val completableFuture = web3Auth.enableMFA()
+        completableFuture.whenComplete { _, error ->
             if (error == null) {
-                Log.d("MainActivity_Web3Auth", "Launched successfully")
-                // Add your logic
+                Log.d("MainActivity_Web3Auth", "MFA launched successfully")
             } else {
-                // Add your logic on error
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
             }
         }
     }
 
-    private fun prepareLoginParams(): LoginParams {
-        val loginParams = if(web3Auth.getUserInfo()!!.typeOfLogin == TypeOfLogin.GOOGLE.name) {
-            LoginParams(Provider.GOOGLE)
-        } else {
-            LoginParams(Provider.JWT, extraLoginOptions = ExtraLoginOptions(domain = "https://web3auth.au.auth0.com", verifierIdField = "email", isVerifierIdCaseSensitive = false))
-        }
-        return loginParams
-    }
-
     private fun launchWalletServices() {
-        val completableFuture = web3Auth.launchWalletServices(
-           ChainConfig(
-                chainId = "0x1",
-                rpcTarget = "https://1rpc.io/eth",
-                ticker = "ETH",
-                chainNamespace = ChainNamespace.EIP155
-            )
-        )
-
-        completableFuture.whenComplete{_, error ->
-            if(error == null) {
-                // Add your logic
+        val completableFuture = web3Auth.showWalletUI()
+        completableFuture.whenComplete { _, error ->
+            if (error == null) {
                 Log.d("MainActivity_Web3Auth", "Wallet services launched successfully")
             } else {
-                // Add your logic for error
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
             }
         }
     }
 
     private fun getAddress(): String {
+        val activeCredentials = requireCredentials() ?: return ""
         val contentTextView = findViewById<TextView>(R.id.contentTextView)
-        val publicAddress = credentials.address
+        val publicAddress = activeCredentials.address
         contentTextView.text = publicAddress
         println("Address:, $publicAddress")
         return publicAddress
     }
 
     private fun getBalance(): BigInteger? {
+        val activeCredentials = requireCredentials() ?: return null
         val contentTextView = findViewById<TextView>(R.id.contentTextView)
-        val publicAddress = credentials.address
-        val ethBalance: EthGetBalance = web3.ethGetBalance(publicAddress, DefaultBlockParameterName.LATEST).sendAsync().get()
+        val publicAddress = activeCredentials.address
+        val ethBalance: EthGetBalance =
+            web3.ethGetBalance(publicAddress, DefaultBlockParameterName.LATEST).sendAsync().get()
         contentTextView.text = ethBalance.balance.toString()
         println("Balance: ${ethBalance.balance}")
         return ethBalance.balance
     }
 
     private fun signMessage(message: String): String {
+        val activeCredentials = requireCredentials() ?: return ""
         val contentTextView = findViewById<TextView>(R.id.contentTextView)
         val hashedData = Hash.sha3(message.toByteArray(StandardCharsets.UTF_8))
-        val signature = Sign.signMessage(hashedData, credentials.ecKeyPair)
+        val signature = Sign.signMessage(hashedData, activeCredentials.ecKeyPair)
         val r = Numeric.toHexString(signature.r)
         val s = Numeric.toHexString(signature.s).substring(2)
         val v = Numeric.toHexString(signature.v).substring(2)
@@ -260,14 +290,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendTransaction(amount: Double, recipientAddress: String): String? {
+        val activeCredentials = requireCredentials() ?: return null
         val contentTextView = findViewById<TextView>(R.id.contentTextView)
-        val ethGetTransactionCount: EthGetTransactionCount = web3.ethGetTransactionCount(credentials.address, DefaultBlockParameterName.LATEST).sendAsync().get()
+        val ethGetTransactionCount: EthGetTransactionCount =
+            web3.ethGetTransactionCount(
+                activeCredentials.address,
+                DefaultBlockParameterName.LATEST
+            ).sendAsync().get()
         val nonce: BigInteger = ethGetTransactionCount.transactionCount
         val value: BigInteger = Convert.toWei(amount.toString(), Convert.Unit.ETHER).toBigInteger()
         val gasLimit: BigInteger = BigInteger.valueOf(21000)
         val chainId: EthChainId = web3.ethChainId().sendAsync().get()
 
-        // Raw Transaction
         val rawTransaction: RawTransaction = RawTransaction.createTransaction(
             chainId.chainId.toLong(),
             nonce,
@@ -279,10 +313,11 @@ class MainActivity : AppCompatActivity() {
             BigInteger.valueOf(6000000000000)
         )
 
-        val signedMessage: ByteArray = TransactionEncoder.signMessage(rawTransaction, credentials)
+        val signedMessage: ByteArray = TransactionEncoder.signMessage(rawTransaction, activeCredentials)
         val hexValue: String = Numeric.toHexString(signedMessage)
-        val ethSendTransaction: EthSendTransaction = web3.ethSendRawTransaction(hexValue).sendAsync().get()
-        return if(ethSendTransaction.error != null) {
+        val ethSendTransaction: EthSendTransaction =
+            web3.ethSendRawTransaction(hexValue).sendAsync().get()
+        return if (ethSendTransaction.error != null) {
             println("Tx Error: ${ethSendTransaction.error.message}")
             contentTextView.text = "Tx Error: ${ethSendTransaction.error.message}"
             ethSendTransaction.error.message
@@ -294,12 +329,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signOut() {
-        val logoutCompletableFuture =  web3Auth.logout()
+        val logoutCompletableFuture = web3Auth.logout()
         logoutCompletableFuture.whenComplete { _, error ->
             if (error == null) {
+                credentials = null
                 reRender()
             } else {
-                Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong" )
+                Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
             }
         }
         recreate()
@@ -320,13 +356,13 @@ class MainActivity : AppCompatActivity() {
         var key: String? = null
         var userInfo: UserInfo? = null
         try {
-            key = web3Auth.getPrivkey()
+            key = web3Auth.getPrivateKey()
             userInfo = web3Auth.getUserInfo()
         } catch (ex: Exception) {
-            print(ex)
+            Log.d("MainActivity_Web3Auth", ex.message ?: "Unable to fetch session")
         }
         println(userInfo)
-        if (key is String && key.isNotEmpty()) {
+        if (!key.isNullOrEmpty()) {
             contentTextView.text = gson.toJson(userInfo) + "\n Private Key: " + key
             contentTextView.visibility = View.VISIBLE
             signInEPButton.visibility = View.GONE
@@ -351,5 +387,25 @@ class MainActivity : AppCompatActivity() {
             getEnableMFAButton.visibility = View.GONE
             getLaunchWalletServicesButton.visibility = View.GONE
         }
+    }
+
+    private fun setCredentialsIfPresent() {
+        try {
+            val privateKey = web3Auth.getPrivateKey()
+            if (privateKey.isNotBlank()) {
+                credentials = Credentials.create(privateKey)
+            }
+        } catch (ex: Exception) {
+            Log.d("MainActivity_Web3Auth", ex.message ?: "No private key available")
+        }
+    }
+
+    private fun requireCredentials(): Credentials? {
+        val activeCredentials = credentials
+        if (activeCredentials == null) {
+            Toast.makeText(this, "Please login first.", Toast.LENGTH_SHORT).show()
+            return null
+        }
+        return activeCredentials
     }
 }

@@ -1,8 +1,6 @@
 package com.sbz.web3authdemoapp
 
-import android.content.ContentValues.TAG
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -19,6 +17,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonArray
 import com.web3auth.core.Web3Auth
 import com.web3auth.core.types.*
+import org.torusresearch.fetchnodedetails.types.Web3AuthNetwork
 import org.web3j.crypto.Credentials
 import org.web3j.crypto.Hash
 import org.web3j.crypto.RawTransaction
@@ -47,45 +46,53 @@ class MainActivity : AppCompatActivity() {
     private val rpcUrl = "https://1rpc.io/sepolia"
 
     private val gson = Gson()
+    companion object {
+        private const val TAG = "MainActivity_Web3Auth"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        auth = Firebase.auth
+        try {
+            auth = Firebase.auth
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to initialize Firebase Auth", e)
+            Toast.makeText(this, "Failed to initialize Firebase: ${e.message}",
+                Toast.LENGTH_LONG).show()
+            return
+        }
         web3 = Web3j.build(HttpService(rpcUrl))
 
         web3Auth = Web3Auth(
            Web3AuthOptions(
                clientId = getString(R.string.web3auth_project_id), // pass over your Web3Auth Client ID from Developer Dashboard
-               network = Network.SAPPHIRE_MAINNET, // pass over the network you want to use (MAINNET or TESTNET or CYAN, AQUA, SAPPHIRE_MAINNET or SAPPHIRE_TESTNET)
-               buildEnv = BuildEnv.PRODUCTION,
-               redirectUrl = Uri.parse("com.sbz.web3authdemoapp://auth"), // your app's redirect URL
+               web3AuthNetwork = Web3AuthNetwork.SAPPHIRE_MAINNET, // pass over the network you want to use
+               redirectUrl = "com.sbz.web3authdemoapp://auth", // your app's redirect URL
+               
                // Optional parameters
-               whiteLabel = WhiteLabelData(
-                   "Web3Auth Android FireBase Example",
-                   null,
-                   "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-                   "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-                   Language.EN,
-                   ThemeModes.LIGHT,
-                   true,
-                   hashMapOf(
-                       "primary" to "#eb5424"
+               walletServicesConfig = WalletServicesConfig(
+                   whiteLabel = WhiteLabelData(
+                       "Web3Auth Android FireBase Example",
+                       null,
+                       "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+                       "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+                       Language.EN,
+                       ThemeModes.LIGHT,
+                       true,
+                       hashMapOf(
+                           "primary" to "#eb5424"
+                       )
+                   ),
+
+               ),
+               authConnectionConfig = listOf(
+                   AuthConnectionConfig(
+                       authConnection = AuthConnection.CUSTOM,
+                       authConnectionId = "w3a-firebase-demo",
+                       clientId = getString(R.string.web3auth_project_id)
                    )
-               ),
-               mfaSettings = MfaSettings(
-                   deviceShareFactor = MfaSetting(true, 1, true),
-                   socialBackupFactor = MfaSetting(true, 2, true),
-                   passwordFactor = MfaSetting(true, 3, false),
-                   backUpShareFactor = MfaSetting(true, 4, false),
-               ),
-               loginConfig = hashMapOf("jwt" to LoginConfigItem(
-                   verifier = "w3a-firebase-demo",
-                   typeOfLogin = TypeOfLogin.JWT,
-                   name = "Firebase login",
-                   clientId = getString(R.string.web3auth_project_id)
-               ))
-           ), context = this
+               )
+           ), this
        )
 
         // Handle user signing in when app is not alive
@@ -96,10 +103,10 @@ class MainActivity : AppCompatActivity() {
         sessionResponse.whenComplete { _, error ->
             if (error == null) {
                 reRender()
-                println("PrivKey: " + web3Auth.getPrivkey())
-                println("ed25519PrivKey: " + web3Auth.getEd25519PrivKey())
+                println("PrivKey: " + web3Auth.getPrivateKey())
+                println("ed25519PrivKey: " + web3Auth.getEd25519PrivateKey())
                 println("Web3Auth UserInfo" + web3Auth.getUserInfo())
-                credentials = Credentials.create(web3Auth.getPrivkey())
+                credentials = Credentials.create(web3Auth.getPrivateKey())
 
             } else {
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
@@ -157,37 +164,111 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signIn() {
-        auth.signInWithEmailAndPassword("android@firebase.com", "Android@Web3Auth")
-            .addOnCompleteListener(this) { task ->
+        try {
+            if (!::auth.isInitialized) {
+                Log.e(TAG, "Firebase Auth is not initialized")
+                Toast.makeText(this, "Firebase Auth is not initialized",
+                    Toast.LENGTH_SHORT).show()
+                return
+            }
+            Log.d(TAG, "Attempting Firebase sign in...")
+            auth.signInWithEmailAndPassword("android@firebase.com", "Android@Web3Auth")
+                .addOnCompleteListener(this) { task ->
                 if (task.isSuccessful) {
                     // Sign in success, update UI with the signed-in user's information
                     Log.d(TAG, "signInWithEmail:success")
                     val user = auth.currentUser
-                    user!!.getIdToken(true).addOnSuccessListener { result ->
-                        val idToken = result.token
-                        //Do whatever
-                        Log.d(TAG, "GetTokenResult result = $idToken")
-                        val selectedLoginProvider = Provider.JWT
-                        val loginParams = LoginParams(selectedLoginProvider, extraLoginOptions = ExtraLoginOptions(domain= "firebase", id_token = idToken, verifierIdField = "sub"))
-                        val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.login(loginParams)
+                    if (user != null) {
+                        user.getIdToken(true).addOnSuccessListener { result ->
+                            try {
+                                val idToken = result.token
+                                //Do whatever
+                                Log.d(TAG, "GetTokenResult result = $idToken")
+                                if (idToken != null) {
+                                    if (!::web3Auth.isInitialized) {
+                                        Log.e(TAG, "Web3Auth is not initialized")
+                                        if (!isFinishing && !isDestroyed) {
+                                            Toast.makeText(this@MainActivity, "Web3Auth is not initialized",
+                                                Toast.LENGTH_SHORT).show()
+                                        }
+                                        return@addOnSuccessListener
+                                    }
+                                    val loginParams = LoginParams(
+                                        authConnection = AuthConnection.CUSTOM,
+                                        authConnectionId = "w3a-firebase-demo",
+                                        idToken = idToken
+                                    )
+                                    val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.connectTo(loginParams)
 
-                        loginCompletableFuture.whenComplete {  _, error ->
-                            if (error == null) {
-                                credentials = Credentials.create(web3Auth.getPrivkey())
-                                reRender()
-                            } else {
-                                Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong" )
+                                    loginCompletableFuture.whenComplete { _, error ->
+                                        runOnUiThread {
+                                            if (isFinishing || isDestroyed) {
+                                                Log.w(TAG, "Activity is finishing/destroyed, skipping UI update")
+                                                return@runOnUiThread
+                                            }
+                                            if (error == null) {
+                                                credentials = Credentials.create(web3Auth.getPrivateKey())
+                                                reRender()
+                                            } else {
+                                                Log.e(TAG, "Web3Auth login failed", error)
+                                                error.printStackTrace()
+                                                Toast.makeText(this@MainActivity, "Web3Auth login failed: ${error.message}",
+                                                    Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Log.e(TAG, "ID token is null")
+                                    if (!isFinishing && !isDestroyed) {
+                                        Toast.makeText(this@MainActivity, "Failed to get ID token.",
+                                            Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Exception in getIdToken success callback", e)
+                                e.printStackTrace()
+                                if (!isFinishing && !isDestroyed) {
+                                    Toast.makeText(this@MainActivity, "Error processing ID token: ${e.message}",
+                                        Toast.LENGTH_SHORT).show()
+                                }
                             }
+                        }.addOnFailureListener { exception ->
+                            Log.e(TAG, "Failed to get ID token", exception)
+                            exception.printStackTrace()
+                            if (!isFinishing && !isDestroyed) {
+                                Toast.makeText(this@MainActivity, "Failed to get ID token: ${exception.message}",
+                                    Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } else {
+                        Log.e(TAG, "Current user is null after successful sign in")
+                        if (!isFinishing && !isDestroyed) {
+                            Toast.makeText(this@MainActivity, "User is null after sign in.",
+                                Toast.LENGTH_SHORT).show()
                         }
                     }
                 } else {
                     // If sign in fails, display a message to the user.
-                    Log.w(TAG, "signInWithEmail:failure", task.exception)
-                    Toast.makeText(baseContext, "Authentication failed.",
-                        Toast.LENGTH_SHORT).show()
-
+                    val exception = task.exception
+                    Log.e(TAG, "signInWithEmail:failure", exception)
+                    val errorMessage = when {
+                        exception?.message?.contains("no user record") == true -> 
+                            "User does not exist. Please create the user in Firebase Console first."
+                        exception?.message?.contains("password") == true -> 
+                            "Invalid password."
+                        else -> 
+                            "Authentication failed: ${exception?.message ?: "Unknown error"}"
+                    }
+                    Toast.makeText(this@MainActivity, errorMessage,
+                        Toast.LENGTH_LONG).show()
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during sign in", e)
+            e.printStackTrace()
+            Toast.makeText(this, "Sign in error: ${e.message}",
+                Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun signOut() {
@@ -221,19 +302,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun prepareLoginParams(result: GetTokenResult): LoginParams {
-        val selectedLoginProvider = Provider.JWT
-        return LoginParams(selectedLoginProvider, extraLoginOptions = ExtraLoginOptions(domain= "firebase", id_token = result.token, verifierIdField = "sub"))
+        return LoginParams(
+            authConnection = AuthConnection.CUSTOM,
+            authConnectionId = "w3a-firebase-demo",
+            idToken = result.token
+        )
     }
 
     private fun launchWalletServices() {
-        val completableFuture = web3Auth.launchWalletServices(
-            ChainConfig(
-                chainId = "0x1",
-                rpcTarget = "https://1rpc.io/eth",
-                ticker = "ETH",
-                chainNamespace = ChainNamespace.EIP155
-            )
-        )
+        val completableFuture = web3Auth.showWalletUI()
 
         completableFuture.whenComplete{_, error ->
             if(error == null) {
@@ -325,7 +402,7 @@ class MainActivity : AppCompatActivity() {
         var key: String? = null
         var userInfo: UserInfo? = null
         try {
-            key = web3Auth.getPrivkey()
+            key = web3Auth.getPrivateKey()
             userInfo = web3Auth.getUserInfo()
         } catch (ex: Exception) {
             print(ex)

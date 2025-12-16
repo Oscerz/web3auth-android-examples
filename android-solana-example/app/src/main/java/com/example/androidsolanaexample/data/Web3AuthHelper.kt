@@ -14,6 +14,6 @@ interface Web3AuthHelper {
     fun getUserInfo(): UserInfo
     suspend fun initialize(): CompletableFuture<Void>
 
-    suspend fun setResultUrl(uri: Uri?): Unit
+    fun setResultUrl(uri: Uri?)
     suspend fun isUserAuthenticated(): Boolean
 }

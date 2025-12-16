@@ -1,7 +1,6 @@
 package com.sbz.web3authdemoapp
 
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -12,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.Gson
 import com.web3auth.core.Web3Auth
 import com.web3auth.core.types.*
+import org.torusresearch.fetchnodedetails.types.Web3AuthNetwork
 import org.web3j.crypto.Credentials
 import org.web3j.crypto.Hash
 import org.web3j.crypto.RawTransaction
@@ -38,7 +38,6 @@ class MainActivity : AppCompatActivity() {
     private val gson = Gson()
     private lateinit var web3: Web3j
     private lateinit var credentials: Credentials
-    private lateinit var loginParams: LoginParams
     private val rpcUrl = "https://1rpc.io/sepolia"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -46,41 +45,35 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         web3 = Web3j.build(HttpService(rpcUrl))
-        loginParams = LoginParams(Provider.JWT, extraLoginOptions = ExtraLoginOptions(domain = "https://web3auth.au.auth0.com", verifierIdField = "sub"))
 
         web3Auth = Web3Auth(
            Web3AuthOptions(
-
                clientId = getString(R.string.web3auth_project_id), // pass over your Web3Auth Client ID from Developer Dashboard
-               network = Network.SAPPHIRE_MAINNET, // pass over the network you want to use (MAINNET or TESTNET or CYAN)
-               buildEnv = BuildEnv.PRODUCTION,
-               redirectUrl = Uri.parse("com.sbz.web3authdemoapp://auth"), // your app's redirect URL
+               web3AuthNetwork = Web3AuthNetwork.SAPPHIRE_MAINNET, // pass over the network you want to use
+               redirectUrl = "com.sbz.web3authdemoapp://auth", // your app's redirect URL
                // Optional parameters
-               whiteLabel = WhiteLabelData(
-                   "Web3Auth Android Auth0 Example",
-                   null,
-                   "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-                   "https://cryptologos.cc/logos/ethereum-eth-logo.png",
-                   Language.EN,
-                   ThemeModes.LIGHT,
-                   true,
-                   hashMapOf(
-                       "primary" to "#eb5424"
+               walletServicesConfig = WalletServicesConfig(
+                   whiteLabel = WhiteLabelData(
+                       "Web3Auth Android Auth0 Example",
+                       null,
+                       "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+                       "https://cryptologos.cc/logos/ethereum-eth-logo.png",
+                       Language.EN,
+                       ThemeModes.LIGHT,
+                       true,
+                       hashMapOf(
+                           "primary" to "#eb5424"
+                       )
                    )
                ),
-               mfaSettings = MfaSettings(
-                   deviceShareFactor = MfaSetting(true, 1, true),
-                   socialBackupFactor = MfaSetting(true, 2, true),
-                   passwordFactor = MfaSetting(true, 3, false),
-                   backUpShareFactor = MfaSetting(true, 4, false),
-               ),
-               loginConfig = hashMapOf("jwt" to LoginConfigItem(
-                   verifier = "w3a-auth0-demo",
-                   typeOfLogin = TypeOfLogin.JWT,
-                   name = "Auth0 Login",
-                   clientId = getString(R.string.web3auth_auth0_client_id)
-               ))
-           ), context = this
+               authConnectionConfig = listOf(
+                   AuthConnectionConfig(
+                       authConnection = AuthConnection.CUSTOM,
+                       authConnectionId = "w3a-auth0-demo",
+                       clientId = getString(R.string.web3auth_auth0_client_id)
+                   )
+               )
+           ), this
        )
 
         // Handle user signing in when app is not alive
@@ -91,10 +84,10 @@ class MainActivity : AppCompatActivity() {
         sessionResponse.whenComplete { _, error ->
             if (error == null) {
                 reRender()
-                println("PrivKey: " + web3Auth.getPrivkey())
-                println("ed25519PrivKey: " + web3Auth.getEd25519PrivKey())
+                println("PrivKey: " + web3Auth.getPrivateKey())
+                println("ed25519PrivKey: " + web3Auth.getEd25519PrivateKey())
                 println("Web3Auth UserInfo" + web3Auth.getUserInfo())
-                credentials = Credentials.create(web3Auth.getPrivkey())
+                credentials = Credentials.create(web3Auth.getPrivateKey())
             } else {
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
                 // Ideally, you should initiate the login function here.
@@ -151,19 +144,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signIn() {
-        val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.login(loginParams)
+        val extraLoginOptionsData = ExtraLoginOptions(
+            domain = "https://web3auth.au.auth0.com"
+        )
+        val loginParams = LoginParams(
+            authConnection = AuthConnection.CUSTOM,
+            authConnectionId = "w3a-auth0-demo",
+            extraLoginOptions = extraLoginOptionsData
+        )
+        val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.connectTo(loginParams)
 
-    //    For Email Passwordless, use the below code and pass email id into extraLoginOptions of LoginParams.
-    //    val selectedLoginProvider = Provider.EMAIL_PASSWORDLESS
-    //    val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.login(LoginParams(selectedLoginProvider, extraLoginOptions = ExtraLoginOptions(login_hint = "shahbaz.web3@gmail.com")))
+    //    For Email Passwordless, use the below code and pass email id into loginHint of LoginParams.
+    //    val loginParams = LoginParams(
+    //        authConnection = AuthConnection.EMAIL_PASSWORDLESS,
+    //        loginHint = "shahbaz.web3@gmail.com"
+    //    )
+    //    val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.connectTo(loginParams)
 
-    //    For login with Custom JWT, use the below code and pass email id into extraLoginOptions of LoginParams.
-    //    val selectedLoginProvider = Provider.JWT
-    //    val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.login(LoginParams(selectedLoginProvider, extraLoginOptions = ExtraLoginOptions(id_token = "<id-token>", domain: "your-domain")))
+    //    For login with Custom JWT, use the below code and pass idToken into LoginParams.
+    //    val loginParams = LoginParams(
+    //        authConnection = AuthConnection.CUSTOM,
+    //        authConnectionId = "your-verifier-id",
+    //        idToken = "<id-token>"
+    //    )
+    //    val loginCompletableFuture: CompletableFuture<Web3AuthResponse> = web3Auth.connectTo(loginParams)
 
         loginCompletableFuture.whenComplete { _, error ->
             if (error == null) {
-                credentials = Credentials.create(web3Auth.getPrivkey())
+                credentials = Credentials.create(web3Auth.getPrivateKey())
                 reRender()
             } else {
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong" )
@@ -172,7 +180,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enableMFA() {
-
+        val extraLoginOptionsData = ExtraLoginOptions(
+            domain = "https://web3auth.au.auth0.com"
+        )
+        val loginParams = LoginParams(
+            authConnection = AuthConnection.CUSTOM,
+            authConnectionId = "w3a-auth0-demo",
+            extraLoginOptions = extraLoginOptionsData
+        )
         val completableFuture = web3Auth.enableMFA(loginParams)
 
         completableFuture.whenComplete{_, error ->
@@ -187,21 +202,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun launchWalletServices() {
-        val completableFuture = web3Auth.launchWalletServices(
-            ChainConfig(
-                chainId = "0x1",
-                rpcTarget = "https://1rpc.io/eth",
-                ticker = "ETH",
-                chainNamespace = ChainNamespace.EIP155
-            )
-        )
-
-        completableFuture.whenComplete{_, error ->
-            if(error == null) {
-                // Add your logic
-                Log.d("MainActivity_Web3Auth", "Wallet services launched successfully")
+        val launchWalletCompletableFuture = web3Auth.showWalletUI()
+        launchWalletCompletableFuture.whenComplete { _, error ->
+            if (error == null) {
+                Log.d("MainActivity_Web3Auth", "Wallet launched successfully")
             } else {
-                // Add your logic for error
                 Log.d("MainActivity_Web3Auth", error.message ?: "Something went wrong")
             }
         }
@@ -297,7 +302,7 @@ class MainActivity : AppCompatActivity() {
         var key: String? = null
         var userInfo: UserInfo? = null
         try {
-            key = web3Auth.getPrivkey()
+            key = web3Auth.getPrivateKey()
             userInfo = web3Auth.getUserInfo()
         } catch (ex: Exception) {
             print(ex)
